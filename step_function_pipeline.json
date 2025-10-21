@@ -1,0 +1,36 @@
+{
+  "Comment": "Fuel Quality Assessment Pipeline",
+  "StartAt": "ProcessFuelData",
+  "States": {
+    "ProcessFuelData": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "fuel-quality-processor",
+        "Payload.$": "$"
+      },
+      "Next": "AnalyzeQuality"
+    },
+    "AnalyzeQuality": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::bedrock:invokeModel",
+      "Parameters": {
+        "ModelId": "amazon.titan-text-express-v1",
+        "Body": {
+          "inputText.$": "$.fuel_data"
+        }
+      },
+      "Next": "StoreResults"
+    },
+    "StoreResults": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:opensearch:index",
+      "Parameters": {
+        "DomainName": "fuel-quality-domain",
+        "Index": "fuel_quality",
+        "Body.$": "$"
+      },
+      "End": true
+    }
+  }
+}

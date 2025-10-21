@@ -1,0 +1,146 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Fuel Quality Data Pipeline - IoT to Kinesis to S3'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: fuel-quality
+
+Resources:
+  # Kinesis Data Stream
+  FuelDataStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      Name: !Sub "${ProjectName}-stream"
+      ShardCount: 1
+
+  # S3 Bucket for processed data
+  FuelDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${ProjectName}-data-${AWS::AccountId}"
+
+  # IAM Role for IoT Rule
+  IoTRuleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: iot.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: KinesisAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kinesis:PutRecord
+                  - kinesis:PutRecords
+                Resource: !GetAtt FuelDataStream.Arn
+
+  # IoT Rule to forward data to Kinesis
+  FuelDataRule:
+    Type: AWS::IoT::TopicRule
+    Properties:
+      RuleName: !Sub "${ProjectName}_data_rule"
+      TopicRulePayload:
+        Sql: "SELECT * FROM 'fuel/quality/readings'"
+        Actions:
+          - Kinesis:
+              StreamName: !Ref FuelDataStream
+              PartitionKey: "${fuel_id}"
+              RoleArn: !GetAtt IoTRuleRole.Arn
+
+  # Lambda for processing Kinesis data
+  DataProcessorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-processor"
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt ProcessorLambdaRole.Arn
+      Code:
+        ZipFile: |
+          import json, boto3, base64
+          from datetime import datetime
+          
+          s3 = boto3.client('s3')
+          
+          def lambda_handler(event, context):
+              bucket = os.environ['BUCKET_NAME']
+              processed_records = []
+              
+              for record in event['Records']:
+                  payload = json.loads(base64.b64decode(record['kinesis']['data']))
+                  
+                  # Add processing timestamp
+                  payload['processed_at'] = datetime.utcnow().isoformat()
+                  
+                  # Store in S3
+                  key = f"fuel-data/{payload['fuel_id']}/{payload['timestamp']}.json"
+                  s3.put_object(
+                      Bucket=bucket,
+                      Key=key,
+                      Body=json.dumps(payload)
+                  )
+                  
+                  processed_records.append(payload)
+              
+              return {'processed': len(processed_records)}
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref FuelDataBucket
+
+  # Lambda execution role
+  ProcessorLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub "${FuelDataBucket}/*"
+        - PolicyName: KinesisAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kinesis:DescribeStream
+                  - kinesis:GetRecords
+                  - kinesis:GetShardIterator
+                  - kinesis:ListStreams
+                Resource: !GetAtt FuelDataStream.Arn
+
+  # Event source mapping
+  KinesisEventSource:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt FuelDataStream.Arn
+      FunctionName: !Ref DataProcessorLambda
+      StartingPosition: LATEST
+
+Outputs:
+  StreamName:
+    Value: !Ref FuelDataStream
+  BucketName:
+    Value: !Ref FuelDataBucket
+  IoTRuleName:
+    Value: !Ref FuelDataRule

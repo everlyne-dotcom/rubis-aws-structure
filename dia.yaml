@@ -1,0 +1,148 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Fuel Quality RAG Pipeline with OpenSearch and Bedrock
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: fuel-quality
+
+Resources:
+  OpenSearchDomain:
+    Type: AWS::OpenSearchService::Domain
+    Properties:
+      DomainName: !Sub ${ProjectName}-opensearch
+      EngineVersion: OpenSearch_2.11
+      ClusterConfig:
+        InstanceType: t3.small.search
+        InstanceCount: 1
+      EBSOptions:
+        EBSEnabled: true
+        VolumeSize: 20
+      EncryptionAtRestOptions:
+        Enabled: true
+      NodeToNodeEncryptionOptions:
+        Enabled: true
+      DomainEndpointOptions:
+        EnforceHTTPS: true
+      AccessPolicies:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: '*'
+            Action: es:*
+            Resource: !Sub arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/${ProjectName}-opensearch/*
+
+  BedrockRAGLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${ProjectName}-RAG-Lambda
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Timeout: 60
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import boto3,python -m streamlit run fuel_quality_dashboard.py
+ json, os
+          from opensearchpy import OpenSearch
+
+          def lambda_handler(event, context):
+              query = event.get("query", "")
+              client = OpenSearch(
+                  hosts=[{'host': os.environ["OPENSEARCH_ENDPOINT"], 'port': 443}],
+                  use_ssl=True, verify_certs=True
+              )
+              search_result = client.search(index="fuel_quality", body={"query": {"match": {"content": query}}})
+              docs = [hit["_source"]["content"] for hit in search_result["hits"]["hits"]]
+              bedrock = boto3.client("bedrock-runtime")
+              response = bedrock.invoke_model(
+                  modelId="amazon.titan-text-express-v1",
+                  body=json.dumps({
+                      "inputText": f"Answer the query using these docs: {docs}. Query: {query}"
+                  })
+              )
+              result = json.loads(response["body"].read())
+              return {"statusCode": 200, "answer": result["outputText"]}
+
+      Environment:
+        Variables:
+          OPENSEARCH_ENDPOINT: !GetAtt OpenSearchDomain.DomainEndpoint
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BedrockRAGLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - es:ESHttpPost
+                  - es:ESHttpGet
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  APIGatewayForAmazonQ:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub ${ProjectName}-Q-API
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  APIGatewayResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref APIGatewayForAmazonQ
+      ParentId: !GetAtt APIGatewayForAmazonQ.RootResourceId
+      PathPart: query
+
+  APIGatewayMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref APIGatewayForAmazonQ
+      ResourceId: !Ref APIGatewayResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - arn:aws:apigateway:${Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations
+          - Region: !Ref AWS::Region
+            LambdaArn: !GetAtt BedrockRAGLambda.Arn
+      MethodResponses:
+        - StatusCode: 200
+
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BedrockRAGLambda
+      Principal: apigateway.amazonaws.com
+
+Outputs:
+  OpenSearchEndpoint:
+    Description: OpenSearch domain endpoint for RAG context retrieval
+    Value: !GetAtt OpenSearchDomain.DomainEndpoint
+  RAGQueryAPI:
+    Description: API Gateway endpoint for Amazon Q-style compliance queries
+    Value: !Sub https://${APIGatewayForAmazonQ}.execute-api.${AWS::Region}.amazonaws.com/prod/query
