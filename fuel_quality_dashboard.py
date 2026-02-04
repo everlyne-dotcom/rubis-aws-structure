@@ -11,7 +11,6 @@ import time
 # Page config
 st.set_page_config(
     page_title="Fuel Quality LLM System",
-    page_icon="🛢️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -187,36 +186,36 @@ col1, col2, col3 = st.columns([3, 1, 1])
 with col1:
     st.markdown('''
     <div class="main-header">
-        <h1>🛢️ Fuel Quality LLM System</h1>
+        <h1>Fuel Quality LLM System</h1>
         <p>Autonomous LLM-powered monitoring of refinery and transport fuel quality</p>
     </div>
     ''', unsafe_allow_html=True)
 
 with col2:
     # System health indicator
-    health_status = "🟢 Active"
+    health_status = "Active"
     st.markdown(f"**System Status:** {health_status}")
 
 with col3:
-    st.markdown("**User:** Admin ⚙️")
+    st.markdown("**User:** Admin")
 
 # Sidebar Navigation
-st.sidebar.markdown("### 🧭 Navigation")
+st.sidebar.markdown("### Navigation")
 page = st.sidebar.selectbox("", [
-    "📊 Dashboard",
-    "📡 Live Feed", 
-    "🤖 AI Reports",
-    "🚨 Alerts",
-    "📋 System Logs"
+    "Dashboard",
+    "Live Feed", 
+    "AI Reports",
+    "Alerts",
+    "System Logs"
 ], label_visibility="collapsed")
 
 # Generate sample data button
-if st.sidebar.button("🔄 Generate Sample Data"):
+if st.sidebar.button("Generate Sample Data"):
     generate_sample_data()
     st.sidebar.success("Sample data generated!")
 
 # Dashboard Page
-if page == "📊 Dashboard":
+if page == " Dashboard":
     st.markdown("## Fuel Quality Intelligence Overview")
     st.markdown("*Autonomous LLM-powered monitoring of refinery and transport fuel quality*")
     
@@ -277,7 +276,7 @@ if page == "📊 Dashboard":
             ''', unsafe_allow_html=True)
     
     # Trend Visualization
-    st.markdown("### 📈 Contamination Trend Analysis")
+    st.markdown("### Contamination Trend Analysis")
     
     # Quick Filters
     col1, col2, col3 = st.columns(3)
@@ -313,7 +312,7 @@ if page == "📊 Dashboard":
         st.plotly_chart(fig, use_container_width=True)
     
     # AI Insight Panel
-    st.markdown("### 🧠 AI Insights Summary")
+    st.markdown("### AI Insights Summary")
     insights = pd.read_sql_query("""
         SELECT fuel_id, ai_reasoning, ai_confidence
         FROM fuel_readings 
@@ -333,11 +332,11 @@ if page == "📊 Dashboard":
     conn.close()
 
 # Live Feed Page
-elif page == "📡 Live Feed":
-    st.markdown("## 📡 Real-Time Sensor Stream")
+elif page == "Live Feed":
+    st.markdown("## Real-Time Sensor Stream")
     
     # Auto-refresh toggle
-    auto_refresh = st.checkbox("🔄 Auto-refresh (5s)")
+    auto_refresh = st.checkbox("Auto-refresh (5s)")
     
     if auto_refresh:
         time.sleep(5)
@@ -382,15 +381,15 @@ elif page == "📡 Live Feed":
         st.divider()
 
 # AI Reports Page
-elif page == "🤖 AI Reports":
-    st.markdown("## 🤖 LLM Analysis Reports")
+elif page == "AI Reports":
+    st.markdown("## LLM Analysis Reports")
     
     # Download options
     col1, col2, col3 = st.columns([2, 1, 1])
     with col2:
         report_format = st.selectbox("Format", ["CSV", "JSON", "PDF Summary"])
     with col3:
-        if st.button("📥 Download Reports"):
+        if st.button(" Download Reports"):
             conn = sqlite3.connect('fuel_quality_llm.db')
             all_reports = pd.read_sql_query("SELECT * FROM fuel_readings ORDER BY contamination_prob DESC", conn)
             conn.close()
@@ -476,8 +475,8 @@ CRITICAL FINDINGS:
                 st.caption(f"Generated on {report['timestamp']} via Bedrock AgentCore v2.1")
 
 # Alerts Page
-elif page == "🚨 Alerts":
-    st.markdown("## 🚨 Active Alerts")
+elif page == " Alerts":
+    st.markdown("## Active Alerts")
     
     conn = sqlite3.connect('fuel_quality_llm.db')
     
@@ -496,7 +495,7 @@ elif page == "🚨 Alerts":
     with col2:
         st.metric("🟡 Moderate Alerts", int(alert_summary['moderate'].iloc[0]))
     with col3:
-        st.metric("📊 Total Readings", int(alert_summary['total'].iloc[0]))
+        st.metric(" Total Readings", int(alert_summary['total'].iloc[0]))
     
     # Critical Alerts
     critical_alerts = pd.read_sql_query("""
@@ -508,7 +507,7 @@ elif page == "🚨 Alerts":
     for _, alert in critical_alerts.iterrows():
         st.markdown(f'''
         <div class="alert-card">
-            <h4>🔴 High Contamination Risk (Critical)</h4>
+            <h4> High Contamination Risk (Critical)</h4>
             <p><strong>Tank:</strong> {alert['fuel_id']} | <strong>Probability:</strong> {alert['contamination_prob']:.2f} | <strong>Confidence:</strong> {alert['ai_confidence']:.0f}%</p>
             <p>"{alert['ai_reasoning'][:100]}..."</p>
         </div>
@@ -520,8 +519,8 @@ elif page == "🚨 Alerts":
     conn.close()
 
 # System Logs Page
-elif page == "📋 System Logs":
-    st.markdown("## 📋 System Event Logs")
+elif page == "System Logs":
+    st.markdown("## System Event Logs")
     
     # Filter Options
     col1, col2, col3 = st.columns(3)
